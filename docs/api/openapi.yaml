@@ -1,0 +1,525 @@
+openapi: 3.1.0
+info:
+  title: FamShield API
+  version: 0.1.0
+  description: FamShield authentication and user-profile API. No family or location endpoints exist.
+servers:
+  - url: http://localhost:3000/api
+    description: Local development
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Report API and database readiness
+      description: Returns readiness only; never includes secrets or database connection details.
+      responses:
+        '200':
+          description: API and configured database are ready.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: API is running, but the database is not configured or ready.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /auth/register:
+    post:
+      operationId: register
+      summary: Create an unverified account and send email/mobile codes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '202':
+          description: Generic accepted response to limit account enumeration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /auth/csrf:
+    get:
+      operationId: getCsrfToken
+      summary: Issue the browser double-submit CSRF token
+      description: Sets a readable CSRF cookie and returns its value for the request header.
+      responses:
+        '200':
+          description: CSRF token issued.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [csrfToken]
+                    properties:
+                      csrfToken:
+                        type: string
+  /auth/verify-phone:
+    post:
+      operationId: verifyPhone
+      summary: Verify the account phone number with a one-time code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PhoneVerificationRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /auth/verify-email:
+    post:
+      operationId: verifyEmail
+      summary: Verify the account email address with a one-time code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailVerificationRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /auth/resend-otp:
+    post:
+      operationId: resendOtp
+      summary: Request another email or phone verification code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResendOtpRequest'
+      responses:
+        '202':
+          $ref: '#/components/responses/Message'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /auth/login:
+    post:
+      operationId: login
+      summary: Authenticate by email or E.164 mobile number
+      description: >
+        Mobile clients receive access and refresh tokens in the response and must store them in
+        platform secure storage. Web clients send clientType=web and receive HttpOnly cookies; token
+        strings are not returned. Web mutations require the double-submit CSRF token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authentication succeeded.
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /auth/refresh:
+    post:
+      operationId: refresh
+      summary: Rotate a refresh token and issue a new access token
+      description: Mobile sends refreshToken in JSON. Web sends its HttpOnly cookie and CSRF header.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: Tokens rotated; the previous refresh token is no longer valid.
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /auth/logout:
+    post:
+      operationId: logout
+      summary: Revoke the current refresh token
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+  /auth/logout-all:
+    post:
+      operationId: logoutAll
+      summary: Revoke all active sessions for the authenticated user
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+  /auth/forgot-password:
+    post:
+      operationId: forgotPassword
+      summary: Request a password-reset code through a verified channel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+      responses:
+        '202':
+          $ref: '#/components/responses/Message'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /auth/reset-password:
+    post:
+      operationId: resetPassword
+      summary: Reset a password using a one-time code
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /auth/sessions:
+    get:
+      operationId: listSessions
+      summary: List the current user's active sessions
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      responses:
+        '200':
+          description: Active sessions.
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+  /auth/sessions/{sessionId}:
+    delete:
+      operationId: revokeSession
+      summary: Revoke one of the current user's sessions
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+  /users/me:
+    get:
+      operationId: getCurrentUser
+      summary: Read the authenticated user's own profile
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      responses:
+        '200':
+          description: Current user's public profile.
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+    patch:
+      operationId: updateCurrentUser
+      summary: Update allowed fields on the authenticated user's own profile
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileUpdateRequest'
+      responses:
+        '200':
+          description: Updated public profile.
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+    delete:
+      operationId: deleteCurrentUser
+      summary: Delete the authenticated user's account after password confirmation
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteAccountRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+components:
+  parameters:
+    CsrfHeader:
+      name: X-CSRF-Token
+      in: header
+      required: false
+      schema:
+        type: string
+      description: Required for state-changing requests authenticated by web cookies.
+  responses:
+    Message:
+      description: Request completed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/MessageResponse'
+    ValidationError:
+      description: Request validation failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    AuthenticationError:
+      description: Authentication is required or the session is invalid.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RateLimited:
+      description: Request rate limit exceeded.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    WebAccessCookie:
+      type: apiKey
+      in: cookie
+      name: fs_access
+  schemas:
+    HealthResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [status, service, database, timestamp]
+          properties:
+            status:
+              type: string
+              enum: [ok, degraded]
+            service:
+              type: string
+              const: famshield-api
+            database:
+              type: string
+              enum: [connected, disconnected]
+            timestamp:
+              type: string
+              format: date-time
+    MessageResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          properties:
+            message:
+              type: string
+            developmentOtp:
+              type: object
+              description: Returned only when development OTP exposure is explicitly enabled.
+              additionalProperties:
+                type: string
+          additionalProperties: true
+        requestId:
+          type: string
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+        requestId:
+          type: string
+    RegisterRequest:
+      type: object
+      required:
+        - fullName
+        - email
+        - phone
+        - password
+        - passwordConfirmation
+        - acceptTerms
+        - acceptPrivacy
+      properties:
+        fullName:
+          type: string
+          minLength: 2
+          maxLength: 100
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          pattern: '^\+[1-9]\d{7,14}$'
+          description: E.164 international format, including country code.
+        password:
+          type: string
+          minLength: 12
+          maxLength: 128
+          description: Must include upper/lowercase, digit, and symbol; maximum 72 UTF-8 bytes.
+        passwordConfirmation:
+          type: string
+        acceptTerms:
+          type: boolean
+          const: true
+        acceptPrivacy:
+          type: boolean
+          const: true
+    EmailVerificationRequest:
+      type: object
+      required: [email, code]
+      properties:
+        email:
+          type: string
+          format: email
+        code:
+          type: string
+          pattern: '^\d{6}$'
+    PhoneVerificationRequest:
+      type: object
+      required: [phone, code]
+      properties:
+        phone:
+          type: string
+          pattern: '^\+[1-9]\d{7,14}$'
+        code:
+          type: string
+          pattern: '^\d{6}$'
+    ResendOtpRequest:
+      type: object
+      required: [identifier, purpose]
+      properties:
+        identifier:
+          type: string
+        purpose:
+          type: string
+          enum: [verify_email, verify_phone]
+    LoginRequest:
+      type: object
+      required: [identifier, password]
+      properties:
+        identifier:
+          type: string
+          description: Email address or E.164 mobile number.
+        password:
+          type: string
+          maxLength: 128
+        clientType:
+          type: string
+          enum: [web, mobile]
+          default: mobile
+        deviceInfo:
+          type: string
+          maxLength: 256
+    RefreshRequest:
+      type: object
+      properties:
+        refreshToken:
+          type: string
+          description: Required for mobile; web uses the HttpOnly refresh cookie.
+    ForgotPasswordRequest:
+      type: object
+      required: [identifier, channel]
+      properties:
+        identifier:
+          type: string
+        channel:
+          type: string
+          enum: [email, phone]
+    ResetPasswordRequest:
+      type: object
+      required: [identifier, code, password, passwordConfirmation]
+      properties:
+        identifier:
+          type: string
+        code:
+          type: string
+          pattern: '^\d{6}$'
+        password:
+          type: string
+          minLength: 12
+          maxLength: 128
+        passwordConfirmation:
+          type: string
+    ProfileUpdateRequest:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        fullName:
+          type: string
+          minLength: 2
+          maxLength: 100
+        profileImageUrl:
+          type: [string, 'null']
+          format: uri
+    DeleteAccountRequest:
+      type: object
+      required: [password]
+      properties:
+        password:
+          type: string

@@ -1,0 +1,32 @@
+{
+  "name": "famshield",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/shared-types",
+    "services/api",
+    "apps/web"
+  ],
+  "overrides": {
+    "minimatch": "^11.0.3"
+  },
+  "scripts": {
+    "dev:web": "npm run dev --workspace @famshield/web",
+    "dev:api": "npm run dev --workspace @famshield/api",
+    "db:migrate": "npm run db:migrate --workspace @famshield/api",
+    "test:api": "npm test --workspace @famshield/api",
+    "build": "npm run build --workspace @famshield/shared-types && npm run build --workspace @famshield/api && npm run build --workspace @famshield/web",
+    "typecheck": "npm run build --workspace @famshield/shared-types && npm run typecheck --workspace @famshield/api && npm run typecheck --workspace @famshield/web",
+    "lint": "eslint .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.14.0",
+    "globals": "^16.3.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.72.1"
+  }
+}
