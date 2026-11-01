@@ -11,6 +11,9 @@ import { requestLogger } from './middleware/requestLogger.js';
 import { csrfProtection } from './middleware/csrfProtection.js';
 import { healthRouter } from './routes/health.js';
 import { usersRouter } from './routes/users.js';
+import { familiesRouter, invitationsRouter } from './routes/families.js';
+import { consentsRouter } from './routes/consents.js';
+import { locationsRouter } from './routes/locations.js';
 import { ApiError } from './utils/ApiError.js';
 
 export const app = express();
@@ -58,6 +61,10 @@ app.use(csrfProtection);
 app.use('/api', healthRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/users', usersRouter);
+app.use('/api/families', familiesRouter);
+app.use('/api/invitations', invitationsRouter);
+app.use('/api/consents', consentsRouter);
+app.use('/api', locationsRouter);
 app.use((req, res) => {
   res.status(404).json({
     error: {

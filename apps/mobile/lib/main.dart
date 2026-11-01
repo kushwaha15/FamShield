@@ -1,26 +1,28 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'core/app_router.dart';
 import 'core/app_theme.dart';
-import 'screens/auth_screen.dart';
-import 'screens/welcome_screen.dart';
+import 'features/location/location_lifecycle_guard.dart';
 
 void main() {
-  runApp(const FamShieldApp());
+  runApp(const ProviderScope(child: FamShieldApp()));
 }
 
-class FamShieldApp extends StatelessWidget {
+class FamShieldApp extends ConsumerWidget {
   const FamShieldApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
+  Widget build(BuildContext context, WidgetRef ref) {
+    final router = ref.watch(appRouterProvider);
+    return MaterialApp.router(
       title: 'FamShield',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
-      onUnknownRoute: (_) =>
-          MaterialPageRoute<void>(builder: (_) => const WelcomeScreen()),
-      routes: {'/auth': (_) => const AuthScreen()},
-      home: const WelcomeScreen(),
+      routerConfig: router,
+      builder: (context, child) => LocationLifecycleGuard(
+        child: child ?? const SizedBox.shrink(),
+      ),
     );
   }
 }

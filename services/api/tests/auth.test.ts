@@ -150,15 +150,17 @@ describe('authentication API', () => {
       SELECT tablename FROM pg_policies
       WHERE schemaname = 'public' AND policyname LIKE '%backend_only'
     `);
-    expect(policies.rows).toHaveLength(4);
+    expect(policies.rows).toHaveLength(9);
 
-    await getTestDatabase().query('GRANT SELECT ON users TO anon');
-    await getTestDatabase().query('SET ROLE anon');
+    const roleClient = await getTestDatabase().connect();
     try {
-      const visibleUsers = await getTestDatabase().query('SELECT id FROM users');
+      await roleClient.query('GRANT SELECT ON users TO anon');
+      await roleClient.query('SET ROLE anon');
+      const visibleUsers = await roleClient.query('SELECT id FROM users');
       expect(visibleUsers.rows).toHaveLength(0);
     } finally {
-      await getTestDatabase().query('RESET ROLE');
+      await roleClient.query('RESET ROLE');
+      roleClient.release();
     }
   });
 

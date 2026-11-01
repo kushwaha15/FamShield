@@ -5,9 +5,15 @@ import { SignJWT, jwtVerify } from 'jose';
 import type { Request, Response } from 'express';
 import { getDatabase } from '../config/database.js';
 import { env } from '../config/env.js';
-import { consents, otpVerifications, refreshTokens, users } from '../db/schema.js';
+import { consents, familyMembers, otpVerifications, refreshTokens, users } from '../db/schema.js';
 import type { RegistrationInput } from '../validators/auth.js';
 import { ApiError } from '../utils/ApiError.js';
+import {
+  publishAuthSessionRevoked,
+  publishAuthUserRevoked,
+  publishFamilyMembershipRemoved,
+  publishLocationInvalidated,
+} from '../sockets/locationNotifications.js';
 import { auditSecurityEvent } from '../utils/audit.js';
 import { otpDelivery } from './otpDelivery.js';
 
@@ -564,6 +570,7 @@ async function revokeSessionTokens(userId: string, sessionId: string, revokedAt:
         isNull(refreshTokens.revokedAt),
       ),
     );
+  publishAuthSessionRevoked(userId, sessionId);
 }
 
 export async function authenticateAccessToken(token: string): Promise<{
@@ -619,17 +626,20 @@ export async function revokeRefreshToken(token: string | undefined, req: Request
     .where(
       and(eq(refreshTokens.tokenHash, hashOpaqueToken(token)), isNull(refreshTokens.revokedAt)),
     )
-    .returning({ userId: refreshTokens.userId });
+    .returning({ userId: refreshTokens.userId, sessionId: refreshTokens.sessionId });
   if (revoked) {
+    publishAuthSessionRevoked(revoked.userId, revoked.sessionId);
     auditSecurityEvent('logout', req, revoked.userId);
   }
 }
 
 export async function revokeAllSessions(userId: string, req: Request): Promise<void> {
-  await getDatabase()
+  const revoked = await getDatabase()
     .update(refreshTokens)
     .set({ revokedAt: new Date() })
-    .where(and(eq(refreshTokens.userId, userId), isNull(refreshTokens.revokedAt)));
+    .where(and(eq(refreshTokens.userId, userId), isNull(refreshTokens.revokedAt)))
+    .returning({ sessionId: refreshTokens.sessionId });
+  if (revoked.length) publishAuthUserRevoked(userId);
   auditSecurityEvent('logout_all', req, userId);
 }
 
@@ -694,6 +704,7 @@ export async function revokeSession(
   if (!revoked.length) {
     throw new ApiError(404, 'SESSION_NOT_FOUND', 'The requested session was not found.');
   }
+  publishAuthSessionRevoked(userId, sessionId);
   auditSecurityEvent('session_revoked', req, userId);
 }
 
@@ -744,6 +755,7 @@ export async function resetPassword(
       .set({ revokedAt: new Date() })
       .where(and(eq(refreshTokens.userId, user.id), isNull(refreshTokens.revokedAt)));
   });
+  publishAuthUserRevoked(user.id);
   auditSecurityEvent('password_reset', req, user.id);
 }
 
@@ -780,7 +792,16 @@ export async function deleteAccount(userId: string, password: string, req: Reque
     throw new ApiError(401, 'INVALID_CREDENTIALS', 'The password is incorrect.');
   }
 
+  const familyMemberships = await getDatabase()
+    .select({ familyId: familyMembers.familyId })
+    .from(familyMembers)
+    .where(eq(familyMembers.userId, userId));
   await getDatabase().delete(users).where(eq(users.id, userId));
+  publishAuthUserRevoked(userId);
+  for (const membership of familyMemberships) {
+    publishFamilyMembershipRemoved(membership.familyId, userId);
+    publishLocationInvalidated(membership.familyId);
+  }
   auditSecurityEvent('account_deleted', req, userId);
 }
 

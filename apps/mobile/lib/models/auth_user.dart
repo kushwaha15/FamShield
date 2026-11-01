@@ -7,6 +7,7 @@ class AuthUser {
     required this.emailVerified,
     required this.phoneVerified,
     required this.status,
+    this.profileImageUrl,
   });
 
   final String id;
@@ -16,6 +17,7 @@ class AuthUser {
   final bool emailVerified;
   final bool phoneVerified;
   final String status;
+  final String? profileImageUrl;
 
   factory AuthUser.fromJson(Map<String, dynamic> json) {
     return AuthUser(
@@ -26,6 +28,7 @@ class AuthUser {
       emailVerified: json['emailVerified'] as bool,
       phoneVerified: json['phoneVerified'] as bool,
       status: json['status'] as String,
+      profileImageUrl: json['profileImageUrl'] as String?,
     );
   }
 }

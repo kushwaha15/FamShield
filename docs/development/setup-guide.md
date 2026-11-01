@@ -77,6 +77,7 @@ manifest declares network access only and does not request location permissions.
 From the repository root:
 
 ```powershell
+npm run test --workspace @famshield/web
 npm run test:api
 npm run typecheck
 npm run build
@@ -92,6 +93,19 @@ the same node-postgres driver used by the API. The test database is isolated fro
 tests do not connect to Supabase or the local PostgreSQL service. For the live service,
 `GET http://localhost:3000/api/health` returns 200 only when PostgreSQL is connected. Without
 `DATABASE_URL`, the API starts in degraded mode, but database operations return service unavailable.
+
+The web app provides `/login`, `/signup`, `/verify`, `/forgot-password`, and `/reset-password`, plus
+an authenticated `/dashboard` with profile and active-session settings at `/dashboard/profile` and
+`/dashboard/security`. Family management is at `/dashboard/families`; per-family consent controls
+and history are at `/dashboard/privacy`. Browser sessions use HttpOnly cookies and CSRF headers;
+tokens are not stored in browser storage. The Android app includes matching family-management and
+location-consent screens. Family membership never enables location sharing. Phase 6 records consent
+only; GPS permissions, collection, and transmission remain unimplemented.
+
+The API migration runner applies numbered migrations in order and records each successful migration.
+Run `npm run db:migrate` only against a local or disposable development database. Never point it at
+the production Supabase database as part of tests or local development. Backend migration tests use
+isolated PGlite and do not read `DATABASE_URL` from `.env`.
 
 ## Client/server contract
 

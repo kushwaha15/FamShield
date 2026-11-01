@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: FamShield API
   version: 0.1.0
-  description: FamShield authentication and user-profile API. No family or location endpoints exist.
+  description: FamShield authentication, family-management, consent, and secure location-sharing backend API.
 servers:
   - url: http://localhost:3000/api
     description: Local development
@@ -299,6 +299,492 @@ paths:
           $ref: '#/components/responses/Message'
         '401':
           $ref: '#/components/responses/AuthenticationError'
+  /families:
+    get:
+      operationId: listFamilies
+      summary: List the caller's active family memberships
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      responses:
+        '200':
+          description: Active families and caller roles.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FamilyListResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+    post:
+      operationId: createFamily
+      summary: Create a family and its owner membership atomically
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFamilyRequest'
+      responses:
+        '201':
+          description: Created family and authenticated owner membership.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FamilyResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+  /families/{familyId}:
+    get:
+      operationId: getFamily
+      summary: Read a family available to the authenticated member
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+      responses:
+        '200':
+          description: Family details and caller role.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FamilyResponse'
+        '404':
+          description: Family is unavailable to the caller.
+  /families/{familyId}/members:
+    get:
+      operationId: listFamilyMembers
+      summary: List active members of a family
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+      responses:
+        '200':
+          description: Active member profiles.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FamilyMembersResponse'
+        '404':
+          description: Family is unavailable to the caller.
+  /families/{familyId}/members/{userId}:
+    delete:
+      operationId: removeFamilyMember
+      summary: Remove an active member (owner only)
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '404':
+          description: Family or active target member is unavailable.
+  /families/{familyId}/invitations:
+    get:
+      operationId: listFamilyInvitations
+      summary: List pending invitations (owner only; no tokens or hashes)
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+      responses:
+        '200':
+          description: Pending invitation metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FamilyInvitationsResponse'
+    post:
+      operationId: createFamilyInvitation
+      summary: Create a single-use invitation (owner only)
+      description: Returns a high-entropy token once. The API stores only its SHA-256 hash.
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateInvitationRequest'
+      responses:
+        '201':
+          description: Invitation metadata and one-time copyable token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedInvitationResponse'
+        '409':
+          description: A pending invitation already exists for the contact.
+  /families/{familyId}/invitations/{invitationId}:
+    delete:
+      operationId: revokeFamilyInvitation
+      summary: Revoke a pending invitation (owner only)
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - name: invitationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '404':
+          description: Invitation is unavailable.
+  /families/{familyId}/leave:
+    post:
+      operationId: leaveFamily
+      summary: Leave a family as an active member
+      description: Owners must transfer ownership before leaving.
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '409':
+          description: An owner must transfer ownership first.
+  /families/{familyId}/transfer-ownership:
+    post:
+      operationId: transferFamilyOwnership
+      summary: Transfer ownership to an active member (owner only)
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransferOwnershipRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '404':
+          description: Family or active target member is unavailable.
+  /invitations:
+    get:
+      operationId: listMyInvitations
+      summary: List unexpired invitations matching the caller's verified contact details
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      responses:
+        '200':
+          description: Invitation metadata only; token and hash are never returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyInvitationsResponse'
+  /invitations/accept:
+    post:
+      operationId: acceptFamilyInvitation
+      summary: Accept a single-use invitation
+      description: Requires a verified email or phone matching the invitation contact.
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvitationTokenRequest'
+      responses:
+        '200':
+          description: Invitation accepted and active member created atomically.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FamilyResponse'
+        '404':
+          description: Invitation is invalid, used, or does not match the caller.
+        '410':
+          description: Invitation has expired.
+  /invitations/decline:
+    post:
+      operationId: declineFamilyInvitation
+      summary: Decline a pending invitation
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvitationTokenRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '404':
+          description: Invitation is invalid or does not match the caller.
+        '410':
+          description: Invitation has expired.
+  /consents/location-sharing:
+    get:
+      operationId: getLocationSharingConsent
+      summary: Get the caller's current family-scoped location consent
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      responses:
+        '200':
+          description: Active family memberships and the caller's consent state for each.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationConsentStateResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+    post:
+      operationId: grantLocationSharingConsent
+      summary: Explicitly grant the caller's consent for one active family
+      description: >
+        Only the authenticated member can grant their own consent. The client must send a
+        confirmation literal and the current policy version. This authorizes future location
+        sharing only; the endpoint does not collect or transmit location.
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GrantLocationConsentRequest'
+      responses:
+        '201':
+          description: The caller's family-scoped consent is active.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationConsentGrantResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+        '404':
+          description: Family is unavailable to the caller.
+        '409':
+          description: The consent policy changed and must be reviewed.
+  /consents/location-sharing/history:
+    get:
+      operationId: getLocationSharingConsentHistory
+      summary: View the authenticated user's location consent history
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      responses:
+        '200':
+          description: The caller's audit history; no other user's consent is included.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationConsentHistoryResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+  /consents/location-sharing/{familyId}:
+    delete:
+      operationId: revokeLocationSharingConsent
+      summary: Revoke the authenticated user's consent for one family
+      description: Revocation is immediate. Family owners cannot revoke another member's consent.
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '200':
+          description: The caller's consent is no longer active.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationConsentRevocationResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+        '404':
+          description: Family or caller-owned consent is unavailable.
+  /families/{familyId}/locations:
+    get:
+      operationId: getCurrentFamilyLocations
+      summary: Read current positions shared by consenting active family members
+      description: >
+        Requires the viewer's active family membership. The viewer does not need to share their own
+        location. Results include only active sharing sessions with current family-scoped consent
+        and unexpired latest positions.
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+      responses:
+        '200':
+          description: Current latest-only positions, with freshness indicators.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FamilyLocationsResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationError'
+        '404':
+          description: Family is unavailable to the caller.
+  /families/{familyId}/location-sharing/sessions:
+    post:
+      operationId: startLocationSharingSession
+      summary: Start the authenticated user's family-scoped sharing session
+      description: Requires the caller's active membership and current explicit location consent.
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '201':
+          description: Sharing session started; no device location is collected by this endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationSessionResponse'
+        '403':
+          description: Current location consent is required.
+        '409':
+          description: An active or paused session already exists.
+  /families/{familyId}/location-sharing/sessions/{sessionId}/pause:
+    post:
+      operationId: pauseLocationSharingSession
+      summary: Pause the authenticated user's session and delete its current position
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - $ref: '#/components/parameters/LocationSessionId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '404':
+          description: Session or family is unavailable.
+        '409':
+          description: Session is not currently sharing.
+  /families/{familyId}/location-sharing/sessions/{sessionId}/resume:
+    post:
+      operationId: resumeLocationSharingSession
+      summary: Resume a paused session after rechecking current consent
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - $ref: '#/components/parameters/LocationSessionId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '403':
+          description: Current consent is no longer valid.
+        '404':
+          description: Session or family is unavailable.
+        '409':
+          description: Session is expired or is not paused.
+  /families/{familyId}/location-sharing/sessions/{sessionId}/stop:
+    post:
+      operationId: stopLocationSharingSession
+      summary: Permanently stop the authenticated user's session and delete its current position
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - $ref: '#/components/parameters/LocationSessionId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '200':
+          $ref: '#/components/responses/Message'
+        '404':
+          description: Session or family is unavailable.
+        '409':
+          description: Session is not active.
+  /families/{familyId}/location-sharing/sessions/{sessionId}/position:
+    put:
+      operationId: updateLocationPosition
+      summary: Submit the caller's latest position for an active session
+      description: >
+        Server identity and consent are derived from authenticated state. The body does not accept
+        user IDs, family IDs, or consent flags. Coordinates are rounded to four decimal places;
+        client timestamps are checked for reasonable skew and order while server receipt time determines
+        freshness. The API does not collect GPS data or retain location history.
+      security:
+        - BearerAuth: []
+        - WebAccessCookie: []
+      parameters:
+        - $ref: '#/components/parameters/FamilyId'
+        - $ref: '#/components/parameters/LocationSessionId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LocationPositionRequest'
+      responses:
+        '200':
+          description: Latest position accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocationPositionResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          description: Session is no longer authorized.
+        '404':
+          description: Session or family is unavailable.
+        '409':
+          description: Update sequence is replayed or out of order.
 components:
   parameters:
     CsrfHeader:
@@ -308,6 +794,20 @@ components:
       schema:
         type: string
       description: Required for state-changing requests authenticated by web cookies.
+    FamilyId:
+      name: familyId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    LocationSessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
   responses:
     Message:
       description: Request completed.
@@ -522,4 +1022,479 @@ components:
       required: [password]
       properties:
         password:
+          type: string
+    CreateFamilyRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 100
+    CreateInvitationRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      maxProperties: 1
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        phone:
+          type: string
+          pattern: '^\+[1-9]\d{7,14}$'
+    InvitationTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 32
+          maxLength: 128
+    TransferOwnershipRequest:
+      type: object
+      additionalProperties: false
+      required: [targetUserId]
+      properties:
+        targetUserId:
+          type: string
+          format: uuid
+    GrantLocationConsentRequest:
+      type: object
+      additionalProperties: false
+      required: [familyId, policyVersion, confirmed]
+      properties:
+        familyId:
+          type: string
+          format: uuid
+        policyVersion:
+          type: string
+          minLength: 1
+          maxLength: 32
+        confirmed:
+          type: boolean
+          const: true
+    LocationConsentScope:
+      type: object
+      required: [familyId, familyName, enabled]
+      properties:
+        familyId:
+          type: string
+          format: uuid
+        familyName:
+          type: string
+        enabled:
+          type: boolean
+          description: True only when the caller granted the current policy version.
+        needsReview:
+          type: boolean
+          description: An older active record exists but does not authorize current-policy sharing.
+        grantedAt:
+          type: string
+          format: date-time
+        grantedPolicyVersion:
+          type: string
+    LocationConsentHistoryEntry:
+      type: object
+      required: [id, familyId, grantedAt, revokedAt, policyVersion, recordedAt, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        familyId:
+          type: [string, 'null']
+          format: uuid
+        grantedAt:
+          type: [string, 'null']
+          format: date-time
+        revokedAt:
+          type: [string, 'null']
+          format: date-time
+        policyVersion:
+          type: string
+        recordedAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [granted, revoked, inactive]
+    LocationConsentStateResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [policyVersion, scopes]
+          properties:
+            policyVersion:
+              type: string
+            scopes:
+              type: array
+              items:
+                $ref: '#/components/schemas/LocationConsentScope'
+        requestId:
+          type: string
+    LocationConsentHistoryResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [history]
+          properties:
+            history:
+              type: array
+              items:
+                $ref: '#/components/schemas/LocationConsentHistoryEntry'
+        requestId:
+          type: string
+    LocationConsentGrantResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [familyId, familyName, enabled, grantedAt, policyVersion]
+          properties:
+            familyId:
+              type: string
+              format: uuid
+            familyName:
+              type: string
+            enabled:
+              type: boolean
+              const: true
+            grantedAt:
+              type: string
+              format: date-time
+            policyVersion:
+              type: string
+        requestId:
+          type: string
+    LocationConsentRevocationResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [familyId, enabled, revokedAt]
+          properties:
+            familyId:
+              type: string
+              format: uuid
+            enabled:
+              type: boolean
+              const: false
+            revokedAt:
+              type: string
+              format: date-time
+        requestId:
+          type: string
+    LocationPositionRequest:
+      type: object
+      additionalProperties: false
+      required: [latitude, longitude, accuracyMeters, sequence, clientRecordedAt]
+      properties:
+        latitude:
+          type: number
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+        accuracyMeters:
+          type: number
+          minimum: 0
+          maximum: 1000
+        sequence:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+        clientRecordedAt:
+          type: string
+          format: date-time
+    LocationSessionResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [id, sessionVersion, status, startedAt, expiresAt]
+          properties:
+            id:
+              type: string
+              format: uuid
+            sessionVersion:
+              type: string
+              format: uuid
+            status:
+              type: string
+              const: sharing
+            startedAt:
+              type: string
+              format: date-time
+            expiresAt:
+              type: string
+              format: date-time
+        requestId:
+          type: string
+    LocationPositionResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [sessionId, recordedAt, expiresAt, sessionExpiresAt, precisionDecimalPlaces]
+          properties:
+            sessionId:
+              type: string
+              format: uuid
+            recordedAt:
+              type: string
+              format: date-time
+            expiresAt:
+              type: string
+              format: date-time
+              description: Expiration time of the latest stored position.
+            sessionExpiresAt:
+              type: string
+              format: date-time
+              description: Refreshed session deadline after accepting this update.
+            precisionDecimalPlaces:
+              type: integer
+              const: 4
+        requestId:
+          type: string
+    FamilyLocationsResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [locations, precisionDecimalPlaces, staleAfterSeconds]
+          properties:
+            locations:
+              type: array
+              items:
+                type: object
+                required:
+                  [userId, fullName, latitude, longitude, accuracyMeters, recordedAt, status]
+                properties:
+                  userId:
+                    type: string
+                    format: uuid
+                  fullName:
+                    type: string
+                  latitude:
+                    type: number
+                  longitude:
+                    type: number
+                  accuracyMeters:
+                    type: number
+                  recordedAt:
+                    type: string
+                    format: date-time
+                  status:
+                    type: string
+                    enum: [fresh, stale]
+            precisionDecimalPlaces:
+              type: integer
+              const: 4
+            staleAfterSeconds:
+              type: integer
+              const: 120
+        requestId:
+          type: string
+    FamilySummary:
+      type: object
+      required: [id, name, createdBy, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 2
+          maxLength: 100
+        createdBy:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        role:
+          type: string
+          enum: [owner, member]
+    FamilyMember:
+      type: object
+      required: [familyId, userId, fullName, role, status, joinedAt]
+      properties:
+        familyId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+        profileImageUrl:
+          type: string
+          format: uri
+        role:
+          type: string
+          enum: [owner, member]
+        status:
+          type: string
+          const: active
+        joinedAt:
+          type: string
+          format: date-time
+    PendingFamilyInvitation:
+      type: object
+      required: [id, status, expiresAt, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        inviteeEmail:
+          type: string
+          format: email
+        inviteePhone:
+          type: string
+          pattern: '^\+[1-9]\d{7,14}$'
+        status:
+          type: string
+          const: pending
+        expiresAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+    FamilyResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [family]
+          properties:
+            family:
+              $ref: '#/components/schemas/FamilySummary'
+        requestId:
+          type: string
+    FamilyListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [families]
+          properties:
+            families:
+              type: array
+              items:
+                $ref: '#/components/schemas/FamilySummary'
+        requestId:
+          type: string
+    FamilyMembersResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [members]
+          properties:
+            members:
+              type: array
+              items:
+                $ref: '#/components/schemas/FamilyMember'
+        requestId:
+          type: string
+    FamilyInvitationsResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [invitations]
+          properties:
+            invitations:
+              type: array
+              items:
+                $ref: '#/components/schemas/PendingFamilyInvitation'
+        requestId:
+          type: string
+    MyInvitationsResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [invitations]
+          properties:
+            invitations:
+              type: array
+              items:
+                type: object
+                required: [id, family, inviterName, expiresAt]
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  family:
+                    type: object
+                    required: [id, name]
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      name:
+                        type: string
+                  inviterName:
+                    type: string
+                  expiresAt:
+                    type: string
+                    format: date-time
+        requestId:
+          type: string
+    CreatedInvitationResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [invitation, token]
+          properties:
+            invitation:
+              type: object
+              required: [id, familyId, expiresAt]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                familyId:
+                  type: string
+                  format: uuid
+                inviteeEmail:
+                  type: string
+                  format: email
+                inviteePhone:
+                  type: string
+                  pattern: '^\+[1-9]\d{7,14}$'
+                expiresAt:
+                  type: string
+                  format: date-time
+            token:
+              type: string
+              minLength: 40
+              description: High-entropy single-use token, returned only by this creation response.
+        requestId:
           type: string

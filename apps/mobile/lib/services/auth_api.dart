@@ -1,11 +1,12 @@
 import 'package:dio/dio.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../core/app_error.dart';
+import '../core/session_store.dart';
+import '../models/auth_session.dart';
 import '../models/auth_user.dart';
 
 class AuthApi {
-  AuthApi({Dio? dio, FlutterSecureStorage? secureStorage})
+  AuthApi({Dio? dio, SessionStore? sessionStore, this.onSessionExpired})
     : _dio =
           dio ??
           Dio(
@@ -19,12 +20,12 @@ class AuthApi {
               headers: const {'Accept': 'application/json'},
             ),
           ),
-      _secureStorage = secureStorage ?? const FlutterSecureStorage() {
-    _refreshDio = Dio(_dio.options);
+      _sessionStore = sessionStore ?? SecureSessionStore() {
+    _refreshDio = Dio(_dio.options)..httpClientAdapter = _dio.httpClientAdapter;
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
-          final accessToken = await _secureStorage.read(key: _accessTokenKey);
+          final accessToken = await _sessionStore.readAccessToken();
           if (accessToken != null) {
             options.headers['Authorization'] = 'Bearer $accessToken';
           }
@@ -32,7 +33,7 @@ class AuthApi {
         },
         onError: (error, handler) async {
           final request = error.requestOptions;
-          final isAuthCall = request.path.contains('auth/');
+          final isAuthCall = _isPublicAuthCall(request.uri.path);
           if (error.response?.statusCode != 401 ||
               isAuthCall ||
               request.extra['famshieldRetried'] == true) {
@@ -42,13 +43,21 @@ class AuthApi {
 
           try {
             await _refreshSession();
-            final accessToken = await _secureStorage.read(key: _accessTokenKey);
+            final accessToken = await _sessionStore.readAccessToken();
+            if (accessToken == null) {
+              throw const AppError(
+                'Your session has expired. Please sign in again.',
+              );
+            }
             request
               ..extra['famshieldRetried'] = true
               ..headers['Authorization'] = 'Bearer $accessToken';
             handler.resolve(await _dio.fetch<dynamic>(request));
-          } catch (_) {
-            await _clearTokens();
+          } catch (refreshError) {
+            if (_isUnauthorizedRefresh(refreshError)) {
+              await _sessionStore.clear();
+              onSessionExpired?.call();
+            }
             handler.next(error);
           }
         },
@@ -56,13 +65,15 @@ class AuthApi {
     );
   }
 
-  static const _accessTokenKey = 'famshield.access-token';
-  static const _refreshTokenKey = 'famshield.refresh-token';
-
   final Dio _dio;
-  final FlutterSecureStorage _secureStorage;
+  final SessionStore _sessionStore;
+  final void Function()? onSessionExpired;
   late final Dio _refreshDio;
   Future<void>? _refreshInProgress;
+
+  Uri get apiBaseUri => Uri.parse(_dio.options.baseUrl);
+
+  Future<String?> readAccessToken() => _sessionStore.readAccessToken();
 
   Future<Map<String, dynamic>> register({
     required String fullName,
@@ -138,11 +149,107 @@ class AuthApi {
     return AuthUser.fromJson(data['user'] as Map<String, dynamic>);
   }
 
+  Future<AuthUser?> restoreSession() async {
+    final accessToken = await _sessionStore.readAccessToken();
+    final refreshToken = await _sessionStore.readRefreshToken();
+    if (accessToken == null && refreshToken == null) return null;
+
+    if (accessToken == null) {
+      try {
+        await _refreshSession();
+      } on AppError catch (error) {
+        if (_isUnauthorizedRefresh(error)) {
+          await _sessionStore.clear();
+        }
+        if (await _sessionStore.readAccessToken() == null &&
+            await _sessionStore.readRefreshToken() == null) {
+          return null;
+        }
+        rethrow;
+      }
+    }
+
+    try {
+      return await currentUser();
+    } on AppError {
+      if (await _sessionStore.readAccessToken() == null &&
+          await _sessionStore.readRefreshToken() == null) {
+        return null;
+      }
+      rethrow;
+    }
+  }
+
   Future<AuthUser> currentUser() async {
     final response = await _request(
       () => _dio.get<Map<String, dynamic>>('users/me'),
     );
     return AuthUser.fromJson(_data(response)['user'] as Map<String, dynamic>);
+  }
+
+  Future<Map<String, dynamic>> getFamilyResource(String path) async {
+    final response = await _request(() => _dio.get<Map<String, dynamic>>(path));
+    return _data(response);
+  }
+
+  Future<Map<String, dynamic>> postFamilyResource(
+    String path, {
+    Map<String, dynamic> body = const {},
+  }) async {
+    final response = await _request(
+      () => _dio.post<Map<String, dynamic>>(path, data: body),
+    );
+    return _data(response);
+  }
+
+  Future<Map<String, dynamic>> putFamilyResource(
+    String path, {
+    required Map<String, dynamic> body,
+  }) async {
+    final response = await _request(
+      () => _dio.put<Map<String, dynamic>>(path, data: body),
+    );
+    return _data(response);
+  }
+
+  Future<void> deleteFamilyResource(String path) async {
+    await _request(() => _dio.delete<dynamic>(path));
+  }
+
+  Future<AuthUser> updateProfile({
+    required String fullName,
+    String? profileImageUrl,
+    bool removeProfileImage = false,
+  }) async {
+    final response = await _request(
+      () => _dio.patch<Map<String, dynamic>>(
+        'users/me',
+        data: {
+          'fullName': fullName,
+          if (removeProfileImage) 'profileImageUrl': null,
+          if (!removeProfileImage && profileImageUrl != null)
+            'profileImageUrl': profileImageUrl,
+        },
+      ),
+    );
+    return AuthUser.fromJson(_data(response)['user'] as Map<String, dynamic>);
+  }
+
+  Future<List<AuthSession>> activeSessions() async {
+    final response = await _request(
+      () => _dio.get<Map<String, dynamic>>('auth/sessions'),
+    );
+    final sessions = _data(response)['sessions'];
+    if (sessions is! List<dynamic>) {
+      throw const AppError('The server returned an invalid session list.');
+    }
+    return sessions
+        .map((session) => AuthSession.fromJson(session as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> revokeSession(String sessionId) async {
+    await _request(() => _dio.delete<dynamic>('auth/sessions/$sessionId'));
   }
 
   Future<void> forgotPassword({
@@ -177,16 +284,18 @@ class AuthApi {
   }
 
   Future<void> logout() async {
-    final refreshToken = await _secureStorage.read(key: _refreshTokenKey);
+    final refreshToken = await _sessionStore.readRefreshToken();
     try {
-      await _request(
-        () => _dio.post<dynamic>(
-          'auth/logout',
-          data: {'refreshToken': refreshToken},
-        ),
-      );
+      if (refreshToken != null) {
+        await _request(
+          () => _dio.post<dynamic>(
+            'auth/logout',
+            data: {'refreshToken': refreshToken},
+          ),
+        );
+      }
     } finally {
-      await _clearTokens();
+      await _sessionStore.clear();
     }
   }
 
@@ -194,7 +303,7 @@ class AuthApi {
     try {
       await _request(() => _dio.post<dynamic>('auth/logout-all'));
     } finally {
-      await _clearTokens();
+      await _sessionStore.clear();
     }
   }
 
@@ -216,8 +325,7 @@ class AuthApi {
   }
 
   Map<String, dynamic> _data(Response<Map<String, dynamic>> response) {
-    final body = response.data;
-    final data = body?['data'];
+    final data = response.data?['data'];
     if (data is! Map<String, dynamic>) {
       throw const AppError('The server returned an invalid response.');
     }
@@ -230,15 +338,16 @@ class AuthApi {
     if (accessToken is! String || refreshToken is! String) {
       throw const AppError('The server did not return a valid session.');
     }
-    await _secureStorage.write(key: _accessTokenKey, value: accessToken);
-    await _secureStorage.write(key: _refreshTokenKey, value: refreshToken);
+    await _sessionStore.writeTokens(
+      accessToken: accessToken,
+      refreshToken: refreshToken,
+    );
   }
 
   Future<void> _refreshSession() async {
     final inProgress = _refreshInProgress;
-    if (inProgress != null) {
-      return inProgress;
-    }
+    if (inProgress != null) return inProgress;
+
     final refresh = _performRefresh();
     _refreshInProgress = refresh;
     try {
@@ -249,7 +358,7 @@ class AuthApi {
   }
 
   Future<void> _performRefresh() async {
-    final refreshToken = await _secureStorage.read(key: _refreshTokenKey);
+    final refreshToken = await _sessionStore.readRefreshToken();
     if (refreshToken == null) {
       throw const AppError('Your session has expired. Please sign in again.');
     }
@@ -258,8 +367,7 @@ class AuthApi {
         'auth/refresh',
         data: {'refreshToken': refreshToken},
       );
-      final data = _data(response);
-      await _storeTokens(data);
+      await _storeTokens(_data(response));
     } on DioException catch (error) {
       throw AppError(
         'Your session has expired. Please sign in again.',
@@ -267,9 +375,25 @@ class AuthApi {
       );
     }
   }
+}
 
-  Future<void> _clearTokens() async {
-    await _secureStorage.delete(key: _accessTokenKey);
-    await _secureStorage.delete(key: _refreshTokenKey);
-  }
+bool _isUnauthorizedRefresh(Object error) {
+  if (error is! AppError) return false;
+  final cause = error.cause;
+  return cause is DioException && cause.response?.statusCode == 401;
+}
+
+bool _isPublicAuthCall(String path) {
+  const endpoints = [
+    'auth/login',
+    'auth/register',
+    'auth/verify-email',
+    'auth/verify-phone',
+    'auth/resend-otp',
+    'auth/refresh',
+    'auth/logout',
+    'auth/forgot-password',
+    'auth/reset-password',
+  ];
+  return endpoints.any(path.endsWith);
 }

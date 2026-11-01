@@ -15,16 +15,16 @@ export function SiteLayout() {
           <div className="flex items-center gap-3">
             <Link
               className="rounded-full px-4 py-2.5 text-sm font-semibold text-brand-navy transition hover:bg-brand-canvas"
-              to="/auth"
+              to="/login"
             >
               Sign in
             </Link>
-            <a
+            <Link
               className="rounded-full bg-brand-navy px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-blue"
-              href="/#principles"
+              to="/signup"
             >
-              Our approach
-            </a>
+              Get started
+            </Link>
           </div>
         </nav>
       </header>

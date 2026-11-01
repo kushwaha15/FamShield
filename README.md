@@ -46,8 +46,10 @@ starts in degraded mode, database-backed endpoints are unavailable, and health r
 - `npm run build` — API and web production builds (also builds shared contracts)
 - `npm run lint` — ESLint
 - `npm run format:check` — Prettier verification
-- `npm run test:api` — API integration tests against an isolated ephemeral PostgreSQL-compatible
-  PGlite database
+- `npm run test:api` — API integration tests against a temporary isolated PostgreSQL cluster. Install
+  PostgreSQL server binaries locally (or set `PG_BIN` to their `bin` directory); tests create and
+  remove their own data directory and use multiple independent connections. They do not use
+  `DATABASE_URL` from `.env` or connect to Supabase.
 - `cd apps/mobile && flutter analyze` — Flutter static analysis
 - `cd apps/mobile && flutter test` — Flutter tests
 

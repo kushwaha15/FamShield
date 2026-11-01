@@ -43,11 +43,17 @@ export function HomePage() {
               and look out for one another—on everyone’s terms.
             </p>
             <div className="mt-9 flex flex-wrap items-center gap-4">
-              <a
+              <Link
                 className="rounded-full bg-brand-navy px-6 py-3 text-sm font-semibold text-white shadow-soft transition hover:bg-brand-blue"
+                to="/signup"
+              >
+                Create your account
+              </Link>
+              <a
+                className="text-sm font-semibold text-brand-blue hover:underline"
                 href="#principles"
               >
-                Discover our principles
+                Our principles
               </a>
               <span className="text-sm text-slate-500">
                 A thoughtful foundation for safer connection.
@@ -156,3 +162,4 @@ export function HomePage() {
     </>
   );
 }
+import { Link } from 'react-router-dom';

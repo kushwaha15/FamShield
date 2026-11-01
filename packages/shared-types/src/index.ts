@@ -50,33 +50,100 @@ export interface Family {
   name: string;
   createdBy: UserId;
   createdAt: string;
+  updatedAt: string;
+  role?: FamilyMemberRole;
 }
 
 export type FamilyMemberRole = 'owner' | 'member';
-export type FamilyMemberStatus = 'invited' | 'active' | 'removed';
+export type FamilyMemberStatus = 'active' | 'left' | 'removed';
 
 export interface FamilyMember {
   familyId: FamilyId;
   userId: UserId;
   role: FamilyMemberRole;
   status: FamilyMemberStatus;
-  joinedAt?: string;
+  fullName: string;
+  profileImageUrl?: string;
+  joinedAt: string;
+}
+
+export type FamilyInvitationStatus = 'pending' | 'accepted' | 'declined' | 'revoked' | 'expired';
+
+export interface FamilyInvitation {
+  id: string;
+  familyId?: FamilyId;
+  inviteeEmail?: string;
+  inviteePhone?: string;
+  status?: FamilyInvitationStatus;
+  family?: Pick<Family, 'id' | 'name'>;
+  inviterName?: string;
+  expiresAt: string;
+  createdAt?: string;
+}
+
+export interface CreatedFamilyInvitation {
+  invitation: FamilyInvitation;
+  token: string;
 }
 
 export interface LocationConsent {
-  userId: UserId;
   familyId: FamilyId;
+  familyName: string;
   enabled: boolean;
+  needsReview?: boolean;
   grantedAt?: string;
-  revokedAt?: string;
+  grantedPolicyVersion?: string;
+}
+
+export interface LocationSharingConsentState {
+  policyVersion: string;
+  scopes: LocationConsent[];
+}
+
+export interface LocationSharingConsentHistoryEntry {
+  id: string;
+  familyId: FamilyId | null;
+  status: 'granted' | 'revoked' | 'inactive';
+  grantedAt: string | null;
+  revokedAt: string | null;
+  policyVersion: string;
+  recordedAt: string;
+}
+
+export interface LocationSharingConsentGrant {
+  familyId: FamilyId;
+  familyName: string;
+  enabled: true;
+  grantedAt: string;
+  policyVersion: string;
 }
 
 export interface LocationUpdate {
-  userId: UserId;
-  familyId: FamilyId;
   latitude: number;
   longitude: number;
+  accuracyMeters: number;
+  sequence: number;
+  clientRecordedAt: string;
+}
+
+export type LocationSharingSessionStatus = 'sharing' | 'paused' | 'stopped' | 'expired';
+
+export interface LocationSharingSession {
+  id: string;
+  sessionVersion: string;
+  status: LocationSharingSessionStatus;
+  startedAt: string;
+  expiresAt: string;
+}
+
+export interface FamilyLocation {
+  userId: UserId;
+  fullName: string;
+  latitude: number;
+  longitude: number;
+  accuracyMeters: number;
   recordedAt: string;
+  status: 'fresh' | 'stale';
 }
 
 export type EmergencyAlertStatus = 'active' | 'acknowledged' | 'resolved';

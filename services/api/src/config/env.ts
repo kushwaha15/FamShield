@@ -18,6 +18,7 @@ const environmentSchema = z.object({
     .transform((value) => value === 'true'),
   BCRYPT_ROUNDS: z.coerce.number().int().min(10).max(14).default(12),
   OTP_TTL_MINUTES: z.coerce.number().int().min(5).max(15).default(10),
+  FAMILY_INVITATION_TTL_DAYS: z.coerce.number().int().min(1).max(30).default(7),
   SMS_PROVIDER: z.enum(['development', 'twilio', 'http']).default('development'),
   EMAIL_PROVIDER: z.enum(['development', 'http']).default('development'),
   SMS_HTTP_URL: z.string().url().optional(),

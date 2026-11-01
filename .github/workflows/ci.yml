@@ -14,6 +14,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run test --workspace @famshield/web
       - run: npm run test:api
       - run: npm run typecheck
       - run: npm run build
